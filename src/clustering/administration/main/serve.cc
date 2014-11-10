@@ -11,7 +11,7 @@
 #include "clustering/administration/http/server.hpp"
 #include "clustering/administration/issues/local.hpp"
 #include "clustering/administration/issues/server.hpp"
-#include "clustering/administration/job_manager.hpp"
+#include "clustering/administration/jobs/manager.hpp"
 #include "clustering/administration/logger.hpp"
 #include "clustering/administration/main/file_based_svs_by_namespace.hpp"
 #include "clustering/administration/main/initial_join.hpp"
@@ -143,10 +143,10 @@ bool do_serve(io_backender_t *io_backender,
                 &cluster_semilattice_metadata_t::servers,
                 semilattice_manager_cluster.get_root_view()));
 
-        // Initialize the stat and job manager before the directory manager so that we
+        // Initialize the stat and jobs manager before the directory manager so that we
         // could initialize the cluster directory metadata with the proper
-        // job_manager and stat_manager mailbox address
-        job_manager_t job_manager(&mailbox_manager);
+        // jobs_manager and stat_manager mailbox address
+        jobs_manager_t jobs_manager(&mailbox_manager);
         stat_manager_t stat_manager(&mailbox_manager);
 
         cluster_directory_metadata_t initial_directory(
@@ -162,7 +162,7 @@ bool do_serve(io_backender_t *io_backender,
             serve_info.ports.http_admin_is_disabled
                 ? boost::optional<uint16_t>()
                 : boost::optional<uint16_t>(serve_info.ports.http_port),
-            job_manager.get_business_card(),
+            jobs_manager.get_business_card(),
             stat_manager.get_address(),
             log_server.get_business_card(),
             i_am_a_server
@@ -266,7 +266,8 @@ bool do_serve(io_backender_t *io_backender,
                               NULL,   /* we'll fill this in later */
                               semilattice_manager_auth.get_root_view(),
                               &get_global_perfmon_collection(),
-                              serve_info.reql_http_proxy);
+                              serve_info.reql_http_proxy,
+                              &jobs_manager);
 
         real_reql_cluster_interface_t real_reql_cluster_interface(
                 &mailbox_manager,
