@@ -8,8 +8,6 @@
 #include "errors.hpp"
 #include <boost/shared_ptr.hpp>
 
-#include "clustering/administration/database_metadata.hpp"
-#include "clustering/administration/namespace_metadata.hpp"
 #include "clustering/administration/servers/name_client.hpp"
 #include "clustering/administration/tables/table_common.hpp"
 #include "containers/uuid.hpp"
@@ -22,6 +20,7 @@ class real_reql_cluster_interface_t;
 `table.reconfigure()`. */
 ql::datum_t convert_table_config_to_datum(
         const table_config_t &config,
+        admin_identifier_format_t identifier_format,
         server_name_client_t *name_client);
 
 class table_config_artificial_table_backend_t :
@@ -30,12 +29,11 @@ class table_config_artificial_table_backend_t :
 public:
     table_config_artificial_table_backend_t(
             boost::shared_ptr< semilattice_readwrite_view_t<
-                cow_ptr_t<namespaces_semilattice_metadata_t> > > _table_sl_view,
-            boost::shared_ptr< semilattice_readwrite_view_t<
-                databases_semilattice_metadata_t> > _database_sl_view,
+                cluster_semilattice_metadata_t> > _semilattice_view,
             real_reql_cluster_interface_t *_reql_cluster_interface,
+            admin_identifier_format_t _identifier_format,
             server_name_client_t *_name_client) :
-        common_table_artificial_table_backend_t(_table_sl_view, _database_sl_view),
+        common_table_artificial_table_backend_t(_semilattice_view, _identifier_format),
         reql_cluster_interface(_reql_cluster_interface),
         name_client(_name_client)
         { }
@@ -51,7 +49,7 @@ private:
     bool format_row(
             namespace_id_t table_id,
             name_string_t table_name,
-            name_string_t db_name,
+            const ql::datum_t &db_name_or_uuid,
             const namespace_semilattice_metadata_t &metadata,
             signal_t *interruptor,
             ql::datum_t *row_out,

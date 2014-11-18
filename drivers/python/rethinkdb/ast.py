@@ -377,11 +377,11 @@ class RqlQuery(object):
     def avg(self, *args):
         return Avg(self, *[func_wrap(arg) for arg in args])
 
-    def min(self, *args):
-        return Min(self, *[func_wrap(arg) for arg in args])
+    def min(self, *args, **kwargs):
+        return Min(self, *[func_wrap(arg) for arg in args], **kwargs)
 
-    def max(self, *args):
-        return Max(self, *[func_wrap(arg) for arg in args])
+    def max(self, *args, **kwargs):
+        return Max(self, *[func_wrap(arg) for arg in args], **kwargs)
 
     def map(self, *args):
         return Map(self, *[func_wrap(arg) for arg in args])
@@ -934,6 +934,12 @@ class DB(RqlTopLevelQuery):
     tt = pTerm.DB
     st = 'db'
 
+    def reconfigure(self, *args, **kwargs):
+        return Reconfigure(self, *args, **kwargs)
+
+    def rebalance(self, *args, **kwargs):
+        return Rebalance(self, *args, **kwargs)
+
     def table_list(self, *args):
         return TableList(self, *args)
 
@@ -1012,6 +1018,9 @@ class Table(RqlQuery):
 
     def reconfigure(self, *args, **kwargs):
         return Reconfigure(self, *args, **kwargs)
+
+    def rebalance(self, *args, **kwargs):
+        return Rebalance(self, *args, **kwargs)
 
     def sync(self, *args):
         return Sync(self, *args)
@@ -1191,6 +1200,10 @@ class DbList(RqlTopLevelQuery):
     tt = pTerm.DB_LIST
     st = "db_list"
 
+class DbConfig(RqlTopLevelQuery):
+    tt = pTerm.DB_CONFIG
+    st = "db_config"
+
 class TableCreate(RqlMethodQuery):
     tt = pTerm.TABLE_CREATE
     st = "table_create"
@@ -1266,6 +1279,18 @@ class IndexWait(RqlMethodQuery):
 class Reconfigure(RqlMethodQuery):
     tt = pTerm.RECONFIGURE
     st = 'reconfigure'
+
+class ReconfigureTL(RqlTopLevelQuery):
+    tt = pTerm.RECONFIGURE
+    st = 'reconfigure'
+
+class Rebalance(RqlMethodQuery):
+    tt = pTerm.REBALANCE
+    st = 'rebalance'
+
+class RebalanceTL(RqlTopLevelQuery):
+    tt = pTerm.REBALANCE
+    st = 'rebalance'
 
 class Sync(RqlMethodQuery):
     tt = pTerm.SYNC

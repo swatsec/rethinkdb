@@ -34,8 +34,12 @@ public:
     artificial_reql_cluster_interface_t(
             /* This is the name of the special database; i.e. `rethinkdb` */
             name_string_t _database,
-            /* These are the tables that live in the special database. */
-            const std::map<name_string_t, artificial_table_backend_t *> &_tables,
+            /* These are the tables that live in the special database. For each pair, the
+            first value will be used if `identifier_format` is unspecified or "name", and
+            the second value will be used if `identifier_format` is "uuid". */
+            const std::map<name_string_t,
+                std::pair<artificial_table_backend_t *, artificial_table_backend_t *>
+                > &_tables,
             /* This is the `real_reql_cluster_interface_t` that we're proxying. */
             reql_cluster_interface_t *_next) :
         database(_database),
@@ -52,9 +56,13 @@ public:
     bool db_find(const name_string_t &name,
             signal_t *interruptor,
             counted_t<const ql::db_t> *db_out, std::string *error_out);
+    bool db_config(const std::vector<name_string_t> &db_names,
+            const ql::protob_t<const Backtrace> &bt,
+            signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
+            std::string *error_out);
 
     bool table_create(const name_string_t &name, counted_t<const ql::db_t> db,
-            const boost::optional<name_string_t> &primary_dc, bool hard_durability,
+            const table_generate_config_params_t &config_params,
             const std::string &primary_key, signal_t *interruptor,
             std::string *error_out);
     bool table_drop(const name_string_t &name, counted_t<const ql::db_t> db,
@@ -63,20 +71,21 @@ public:
             signal_t *interruptor,
             std::set<name_string_t> *names_out, std::string *error_out);
     bool table_find(const name_string_t &name, counted_t<const ql::db_t> db,
+            boost::optional<admin_identifier_format_t> identifier_format,
             signal_t *interruptor, scoped_ptr_t<base_table_t> *table_out,
             std::string *error_out);
     bool table_config(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
             std::string *error_out);
     bool table_status(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
             std::string *error_out);
     bool table_wait(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             table_readiness_t readiness,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
@@ -88,12 +97,37 @@ public:
             const table_generate_config_params_t &params,
             bool dry_run,
             signal_t *interruptor,
-            ql::datum_t *new_config_out,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool db_reconfigure(
+            counted_t<const ql::db_t> db,
+            const table_generate_config_params_t &params,
+            bool dry_run,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool table_rebalance(
+            counted_t<const ql::db_t> db,
+            const name_string_t &name,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool db_rebalance(
+            counted_t<const ql::db_t> db,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool table_estimate_doc_counts(
+            counted_t<const ql::db_t> db,
+            const name_string_t &name,
+            ql::env_t *env,
+            std::vector<int64_t> *doc_counts_out,
             std::string *error_out);
 
 private:
     name_string_t database;
-    std::map<name_string_t, artificial_table_backend_t *> tables;
+    std::map<name_string_t,
+        std::pair<artificial_table_backend_t *, artificial_table_backend_t *> > tables;
     reql_cluster_interface_t *next;
 };
 
@@ -118,13 +152,20 @@ public:
         return reql_cluster_interface.get();
     }
 
+    /* These variables exist only to manage the lifetimes of the various backends; they
+    are initialized in the constructor and then passed to the `reql_cluster_interface`,
+    but not used after that.
+
+    The arrays of two backends are used when the contents of the table depends on the
+    identifier format; one backend uses names and the other uses UUIDs. */
+
     scoped_ptr_t<cluster_config_artificial_table_backend_t> cluster_config_backend;
     scoped_ptr_t<db_config_artificial_table_backend_t> db_config_backend;
-    scoped_ptr_t<issues_artificial_table_backend_t> issues_backend;
+    scoped_ptr_t<issues_artificial_table_backend_t> issues_backend[2];
     scoped_ptr_t<server_config_artificial_table_backend_t> server_config_backend;
     scoped_ptr_t<server_status_artificial_table_backend_t> server_status_backend;
-    scoped_ptr_t<table_config_artificial_table_backend_t> table_config_backend;
-    scoped_ptr_t<table_status_artificial_table_backend_t> table_status_backend;
+    scoped_ptr_t<table_config_artificial_table_backend_t> table_config_backend[2];
+    scoped_ptr_t<table_status_artificial_table_backend_t> table_status_backend[2];
 
     scoped_ptr_t<in_memory_artificial_table_backend_t> debug_scratch_backend;
     scoped_ptr_t<debug_table_status_artificial_table_backend_t>

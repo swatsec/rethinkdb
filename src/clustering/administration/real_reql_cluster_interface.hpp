@@ -44,9 +44,13 @@ public:
     bool db_find(const name_string_t &name,
             signal_t *interruptor,
             counted_t<const ql::db_t> *db_out, std::string *error_out);
+    bool db_config(const std::vector<name_string_t> &db_names,
+            const ql::protob_t<const Backtrace> &bt,
+            signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
+            std::string *error_out);
 
     bool table_create(const name_string_t &name, counted_t<const ql::db_t> db,
-            const boost::optional<name_string_t> &primary_dc, bool hard_durability,
+            const table_generate_config_params_t &config_params,
             const std::string &primary_key, signal_t *interruptor,
             std::string *error_out);
     bool table_drop(const name_string_t &name, counted_t<const ql::db_t> db,
@@ -55,20 +59,21 @@ public:
             signal_t *interruptor,
             std::set<name_string_t> *names_out, std::string *error_out);
     bool table_find(const name_string_t &name, counted_t<const ql::db_t> db,
+            boost::optional<admin_identifier_format_t> identifier_format,
             signal_t *interruptor, scoped_ptr_t<base_table_t> *table_out,
             std::string *error_out);
     bool table_config(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
             std::string *error_out);
     bool table_status(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
             std::string *error_out);
     bool table_wait(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             table_readiness_t readiness,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
@@ -80,7 +85,31 @@ public:
             const table_generate_config_params_t &params,
             bool dry_run,
             signal_t *interruptor,
-            ql::datum_t *new_config_out,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool db_reconfigure(
+            counted_t<const ql::db_t> db,
+            const table_generate_config_params_t &params,
+            bool dry_run,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool table_rebalance(
+            counted_t<const ql::db_t> db,
+            const name_string_t &name,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool db_rebalance(
+            counted_t<const ql::db_t> db,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool table_estimate_doc_counts(
+            counted_t<const ql::db_t> db,
+            const name_string_t &name,
+            ql::env_t *env,
+            std::vector<int64_t> *doc_counts_out,
             std::string *error_out);
 
     /* `calculate_split_points_with_distribution` needs access to the underlying
@@ -117,17 +146,37 @@ private:
     void get_databases_metadata(databases_semilattice_metadata_t *out);
 
     bool get_table_ids_for_query(
-            counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &table_names,
-            std::map<namespace_id_t, name_string_t> *table_map_out,
+            const counted_t<const ql::db_t> &db,
+            const std::vector<name_string_t> &table_names,
+            std::vector<std::pair<namespace_id_t, name_string_t> > *tables_out,
             std::string *error_out);
 
+    /* For each UUID in `tables`, reads the row with that primary key from `backend`, and
+    returns a vector of all the rows. If `error_on_missing` is false, missing rows will
+    be silently ignored; otherwise, an error will be raised. */
     bool table_meta_read(artificial_table_backend_t *backend,
             const counted_t<const ql::db_t> &db,
-            const std::map<namespace_id_t, name_string_t> &table_map,
+            const std::vector<std::pair<namespace_id_t, name_string_t> > &tables,
             bool error_on_missing,
             signal_t *interruptor,
             std::vector<ql::datum_t> *res_out,
+            std::string *error_out);
+
+    bool reconfigure_internal(
+            const counted_t<const ql::db_t> &db,
+            const namespace_id_t &table_id,
+            const name_string_t &table_name,
+            const table_generate_config_params_t &params,
+            bool dry_run,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out);
+    bool rebalance_internal(
+            const counted_t<const ql::db_t> &db,
+            const namespace_id_t &table_id,
+            const name_string_t &table_name,
+            signal_t *interruptor,
+            ql::datum_t *results_out,
             std::string *error_out);
 
     DISABLE_COPYING(real_reql_cluster_interface_t);

@@ -21,13 +21,22 @@
 #include "rdb_protocol/geo/lon_lat_types.hpp"
 #include "perfmon/perfmon.hpp"
 #include "protocol_api.hpp"
-#include "rdb_protocol/changes.hpp"
+#include "rdb_protocol/changefeed.hpp"
 #include "rdb_protocol/datum.hpp"
+#include "rdb_protocol/geo/distances.hpp"
+#include "rdb_protocol/geo/lon_lat_types.hpp"
 #include "rdb_protocol/shards.hpp"
 #include "rdb_protocol/wire_func.hpp"
 
+enum class return_changes_t {
+    NO = 0,
+    YES = 1
+};
+ARCHIVE_PRIM_MAKE_RANGED_SERIALIZABLE(
+        return_changes_t, int8_t,
+        return_changes_t::NO, return_changes_t::YES);
+
 class auth_semilattice_metadata_t;
-class datum_range_t;
 class ellipsoid_spec_t;
 class extproc_pool_t;
 class name_string_t;
@@ -49,7 +58,6 @@ public:
 };
 
 class env_t;
-
 }   // namespace ql
 
 class table_generate_config_params_t {
@@ -66,12 +74,11 @@ public:
     name_string_t director_tag;
 };
 
-enum class table_readiness_t {
-    unavailable,
-    outdated_reads,
-    reads,
-    writes,
-    finished
+enum class admin_identifier_format_t {
+    /* Some parts of the code rely on the fact that `admin_identifier_format_t` can be
+    mapped to `{0, 1}` using `static_cast`. */
+    name = 0,
+    uuid = 1
 };
 
 class base_table_t {
@@ -85,7 +92,7 @@ public:
         const std::string &sindex,
         const ql::protob_t<const Backtrace> &bt,
         const std::string &table_name,   /* the table's own name, for display purposes */
-        const datum_range_t &range,
+        const ql::datum_range_t &range,
         sorting_t sorting,
         bool use_outdated) = 0;
     virtual counted_t<ql::datum_stream_t> read_row_changes(
@@ -93,8 +100,9 @@ public:
         ql::datum_t pval,
         const ql::protob_t<const Backtrace> &bt,
         const std::string &table_name) = 0;
-    virtual counted_t<ql::datum_stream_t> read_all_changes(
+    virtual counted_t<ql::datum_stream_t> read_changes(
         ql::env_t *env,
+        ql::changefeed::keyspec_t &&spec,
         const ql::protob_t<const Backtrace> &bt,
         const std::string &table_name) = 0;
     virtual counted_t<ql::datum_stream_t> read_intersecting(
@@ -162,10 +170,14 @@ public:
     virtual bool db_find(const name_string_t &name,
             signal_t *interruptor,
             counted_t<const ql::db_t> *db_out, std::string *error_out) = 0;
+    virtual bool db_config(const std::vector<name_string_t> &db_names,
+            const ql::protob_t<const Backtrace> &bt,
+            signal_t *interruptor, scoped_ptr_t<ql::val_t> *resp_out,
+            std::string *error_out) = 0;
 
     /* `table_create()` won't return until the table is ready for reading */
     virtual bool table_create(const name_string_t &name, counted_t<const ql::db_t> db,
-            const boost::optional<name_string_t> &primary_dc, bool hard_durability,
+            const table_generate_config_params_t &config_params,
             const std::string &primary_key,
             signal_t *interruptor, std::string *error_out) = 0;
     virtual bool table_drop(const name_string_t &name, counted_t<const ql::db_t> db,
@@ -174,31 +186,32 @@ public:
             signal_t *interruptor, std::set<name_string_t> *names_out,
             std::string *error_out) = 0;
     virtual bool table_find(const name_string_t &name, counted_t<const ql::db_t> db,
+            boost::optional<admin_identifier_format_t> identifier_format,
             signal_t *interruptor, scoped_ptr_t<base_table_t> *table_out,
             std::string *error_out) = 0;
     virtual bool table_config(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor,
             scoped_ptr_t<ql::val_t> *resp_out,
             std::string *error_out) = 0;
     virtual bool table_status(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor,
             scoped_ptr_t<ql::val_t> *resp_out,
             std::string *error_out) = 0;
     virtual bool table_wait(counted_t<const ql::db_t> db,
-            const std::set<name_string_t> &tables,
+            const std::vector<name_string_t> &tables,
             table_readiness_t readiness,
             const ql::protob_t<const Backtrace> &bt,
             signal_t *interruptor,
             scoped_ptr_t<ql::val_t> *resp_out,
             std::string *error_out) = 0;
 
-    /* From the user's point of view, this is a method on the table object. The reason
-    it's internally defined on `reql_cluster_interface_t` rather than `base_table_t` is
-    because its implementation fits much better with the implementations of the other
+    /* From the user's point of view, these are methods on the table object. The reason
+    they're internally defined on `reql_cluster_interface_t` rather than `base_table_t`
+    is because their implementations fits better with the implementations of the other
     methods of `reql_cluster_interface_t` than `base_table_t`. */
     virtual bool table_reconfigure(
             counted_t<const ql::db_t> db,
@@ -206,7 +219,31 @@ public:
             const table_generate_config_params_t &params,
             bool dry_run,
             signal_t *interruptor,
-            ql::datum_t *new_config_out,
+            ql::datum_t *result_out,
+            std::string *error_out) = 0;
+    virtual bool db_reconfigure(
+            counted_t<const ql::db_t> db,
+            const table_generate_config_params_t &params,
+            bool dry_run,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out) = 0;
+    virtual bool table_rebalance(
+            counted_t<const ql::db_t> db,
+            const name_string_t &name,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out) = 0;
+    virtual bool db_rebalance(
+            counted_t<const ql::db_t> db,
+            signal_t *interruptor,
+            ql::datum_t *result_out,
+            std::string *error_out) = 0;
+    virtual bool table_estimate_doc_counts(
+            counted_t<const ql::db_t> db,
+            const name_string_t &name,
+            ql::env_t *env,
+            std::vector<int64_t> *doc_counts_out,
             std::string *error_out) = 0;
 
 protected:
